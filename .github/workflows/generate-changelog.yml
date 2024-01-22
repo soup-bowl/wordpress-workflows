@@ -1,0 +1,48 @@
+name: Generate Changelog
+
+on:
+  workflow_call:
+    inputs:
+      repository:
+        description: 'Repository name in the format owner/repo'
+        default: ${{ github.repository }}
+        type: string
+    outputs:
+      changelog:
+        description: "Changelog output"
+        value: ${{ jobs.generate_changelog.outputs.changelog }}
+
+jobs:
+  generate_changelog:
+    runs-on: ubuntu-latest
+
+    outputs:
+      changelog: ${{ steps.changelog_output.outputs.changelog }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Generate Changelog
+        id: changelog_output
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ inputs.repository }}
+        run: |
+          #!/bin/bash
+
+          response=$(curl -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" "https://api.github.com/repos/$REPOSITORY/releases")
+          echo "This changelog has been auto-generated from [$REPOSITORY](https://github.com/$REPOSITORY/releases).\n\n" > changelog.txt
+          echo "$response" | jq -r '.[] | "= \(.name) =\n\(.body)\n"' | 
+          while IFS= read -r line; do
+            # Check for all Markdown headers and convert them to H4.
+            if [[ $line =~ ^#{1,}\  ]]; then
+              echo "##### ${line/* /}" >> changelog.txt
+            else
+              echo "$line" >> changelog.txt
+            fi
+          done
+
+          # Encoding as using EOF seems to break the markdown.
+          CHANGELONG_CONTENT=$(base64 -w 0 changelog.txt)
+          echo "changelog=$CHANGELONG_CONTENT" >> $GITHUB_OUTPUT
